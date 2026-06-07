@@ -19,7 +19,7 @@ const r2 = new S3Client({
 type UploadAudioOptions = {
   buffer: Buffer;
   key: string;
-  contentType: string;
+  contentType?: string;
 };
 
 export async function uploadAudio({
