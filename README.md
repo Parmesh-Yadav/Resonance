@@ -121,7 +121,8 @@ resonance/
 ├── src/
 │   ├── app/            # Next.js App Router layout, pages, and API routes
 │   ├── components/     # Global and generic shared UI elements (Shadcn components)
-│   ├── features/       # Feature modules: (dashboard, text-to-speech, voices)
+│   ├── features/       # Feature modules: dashboard, text-to-speech, voices
+│   │   └── voices/     # Voice library, search, playback, upload, and recording flows
 │   ├── generated/      # Prisma output
 │   ├── hooks/          # Shared custom React Hooks
 │   ├── lib/            # Configuration utilities (env.ts, db.ts, r2.ts, utils.ts)
@@ -151,25 +152,28 @@ Make sure to map all respective `.env` variables into your deployment portal set
 
 *This application is constantly evolving. Contributions, pull requests, and forks are welcome!*
 
-## 🧭 Current Status (2026-06-07)
+## 🧭 Current State Snapshot (2026-06-21)
 
-The following notes reflect the repository's current implementation details, recent fixes, and recommended local workflows. This is intended to help contributors and maintainers get up-to-speed quickly.
+This section reflects the current working tree, including unstaged changes in this workspace.
 
-- **Framework & runtime:** Next.js 16 (App Router), React 19, TypeScript.
-- **Key dependencies present:** `wavesurfer.js` (audio preview), `@prisma/client` / `prisma` (ORM & migrations), `@aws-sdk/client-s3` (R2/S3), `@clerk/nextjs` (auth). See `package.json` for the full list of runtime and dev dependencies.
-- **Text-to-Speech feature:** Implemented under `src/features/text-to-speech/`. The player UI and controls are in `src/features/text-to-speech/components/voice-preview-panel.tsx` and audio rendering is handled by the `use-wavesurfer` hook at `src/features/text-to-speech/hooks/use-wavesurfer.ts`.
-- **Audio preview/player:** The preview supports play/pause, seek (±10s), visual waveform (WaveSurfer), and direct download of the generated WAV file via the Download button.
-- **Recent bug fix (time formatting):** The time display in the preview previously used `date-fns` to format a synthetic `Date`, which could show incorrect minutes due to local timezone offsets (e.g. always showing `30:01 / 30:01` or an offset). This has been replaced with a pure duration formatter in `src/features/text-to-speech/components/voice-preview-panel.tsx` so durations render consistently as `mm:ss`.
-- **Prisma / Migrations:** The `prisma/` folder contains the schema and migration history. Use `npx prisma migrate deploy` in production or `npx prisma db push` for a quick local sync. The project runs `prisma generate` on `postinstall` to keep the client up-to-date.
-- **Seed & helper scripts:** There are helper scripts in `scripts/` including `seed-system-voices.ts` and a `system-voices/` directory for seeded assets. Use `tsx scripts/seed-system-voices.ts` or wire into an npm script if needed.
+- **Framework & runtime:** Next.js 16.2.4 App Router, React 19.2.4, TypeScript, Clerk, Prisma 7.8.0, tRPC, Nuqs, Tailwind CSS v4.
+- **Dev workflow:** `npm run dev` currently uses `next dev --webpack`. A `next.config.js` file now carries the Next.js config, and `next.config.ts` is no longer used in this workspace.
+- **App shell updates:** The root layout now wraps the app with `ClerkProvider`, `TRPCReactProvider`, `NuqsAdapter`, and the Sonner toaster. Metadata is defined in `src/app/layout.tsx`.
+- **Voices feature:** A full voices library now exists under `src/app/(dashboard)/voices/` and `src/features/voices/`. It includes search, split views for custom and built-in voices, playback controls, deletion for custom voices, and a create flow that supports both file upload and microphone recording.
+- **Voice creation pipeline:** Custom voices are created through `/api/voices/create`, validated for name/category/language, limited to 20MB, and required to be at least 10 seconds long before being uploaded to Cloudflare R2 and persisted in Prisma.
+- **Voice playback pipeline:** `/api/voices/[voiceId]` now serves signed audio for both system and custom voices, with access control enforced for organization-owned custom voices.
+- **Recording support:** `recordrtc` and `@types/recordrtc` were added, along with `src/hooks/use-audio-playback.ts` and `src/features/voices/hooks/use-audio-recorder.ts`, to support in-browser microphone capture and preview.
+- **Shared utilities:** `src/lib/utils.ts` now includes `formatFileSize`, which is used across the voice upload and recording UI.
+- **tRPC integration:** `voicesRouter` now powers `getAll` and `delete`, and the voices page prefetches and hydrates the query state with Nuqs search params.
+- **Dependencies & install behavior:** Prisma generation still runs on `postinstall`, so `npm install` must continue to succeed with a valid Prisma schema and environment.
 
 ### Notable scripts (from package.json)
 
 ```bash
-npm run dev       # next dev
-npm run build     # next build
-npm run start     # next start (production)
-npm run lint      # run ESLint
+npm run dev        # next dev --webpack
+npm run build      # next build
+npm run start      # next start (production)
+npm run lint       # run ESLint
 npm run postinstall # prisma generate (runs automatically after install)
 npm run sync-api   # custom sync script via tsx
 ```
@@ -180,20 +184,11 @@ npm run sync-api   # custom sync script via tsx
 2. Create a local `.env` with `DATABASE_URL`, Clerk keys, and R2/S3 credentials (see `src/lib/env.ts` for required keys).
 3. Install deps: `npm install` (this will run `prisma generate` via `postinstall`).
 4. Apply database state: `npx prisma db push` (or run migrations with `npx prisma migrate dev`).
-5. (Optional) Seed system voices: `tsx scripts/seed-system-voices.ts`.
+5. Open `/voices` to review the current library experience, or `/text-to-speech` to test generation with a selected voice.
 6. Run: `npm run dev` and open http://localhost:3000.
 
-### Troubleshooting & notes
+### Current notes
 
-- If audio waveform or playback is missing, verify `wavesurfer.js` is installed (present in `package.json`) and that the `use-wavesurfer` hook receives a valid `audioUrl`.
-- If you see incorrect durations in the UI, update to the latest `voice-preview-panel.tsx` (the file now uses a duration-based formatter rather than `date-fns` on a synthetic Date).
-- If the build fails due to missing environment variables, you can bypass strict validation locally by temporarily setting `SKIP_ENV_VALIDATION=true` (not recommended for production).
-- Consider removing unused dependencies (for example `date-fns`) if no other code paths rely on it — the time-formatting fix removed the local `date-fns` usage in the preview component.
-
-### Next suggested steps for maintainers
-
-- Add a small integration test to validate the `voice-preview-panel` duration output for several sample durations.
-- Add a documented npm script for seeding system voices (if frequently used): e.g. `seed-system-voices`.
-- Audit dependencies and remove unused ones to reduce bundle size.
-
-If you'd like, I can open a PR that adds the integration test and the `seed-system-voices` npm script.
+- The TTS preview and voice library both depend on audio playback support in the browser, so microphone permissions and autoplay restrictions can affect local testing.
+- If you need a quick sanity check on custom voices, create one from the voices page, verify it appears in the custom list, then test playback and deletion from the card menu.
+- The current repository state includes uncommitted work, so this README intentionally documents the live workspace rather than a clean release snapshot.
