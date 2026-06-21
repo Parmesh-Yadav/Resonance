@@ -7,6 +7,7 @@ import { toast } from "sonner";
 import { useRouter } from "next/navigation";
 import { useMutation } from "@tanstack/react-query";
 import { useTRPC } from "@/trpc/client";
+import { useCheckout } from "@/features/billing/hooks/use-checkout";
 
 const ttsFormSchema = z.object({
     text: z.string().min(1, "Text is required").max(5000, "Text must be at most 5000 characters"),
@@ -43,6 +44,8 @@ export function TextToSpeechForm({
     const router = useRouter();
     const createMutation = useMutation(trpc.generations.create.mutationOptions({}));
 
+    const { checkout } = useCheckout();
+
     const form = useAppForm({
         ...ttsFormOptions,
         defaultValues: defaultValues ?? defaultTTSFormValues,
@@ -63,7 +66,16 @@ export function TextToSpeechForm({
                 router.push(`/text-to-speech/${data.id}`);
             } catch (e) {
                 const message = e instanceof Error ? e.message : "Failed to generate audio."
-                toast.error(message)
+                if (message.includes("SUBSCRIPTION_REQUIRED")) {
+                    toast.error("You need an active subscription to generate audio.", {
+                        action: {
+                            label: "Subscribe",
+                            onClick: () => checkout(),
+                        }
+                    });
+                } else {
+                    toast.error(message);
+                }
             }
         },
     })

@@ -5,6 +5,7 @@ import { chatterbox } from "@/lib/chatterbox-client";
 import { uploadAudio } from "@/lib/r2";
 import { TEXT_MAX_LENGTH } from "@/features/text-to-speech/data/constants";
 import { createTRPCRouter, orgProcedure } from "../init";
+import { polar } from "@/lib/polar";
 
 export const generationsRouter = createTRPCRouter({
   getById: orgProcedure
@@ -65,6 +66,31 @@ export const generationsRouter = createTRPCRouter({
       }),
     )
     .mutation(async ({ input, ctx }) => {
+      try {
+        const customerState = await polar.customers.getStateExternal({
+          externalId: ctx.orgId,
+        });
+
+        const hasActiveSubscription =
+          (customerState.activeSubscriptions ?? []).length > 0;
+
+        if (!hasActiveSubscription) {
+          throw new TRPCError({
+            code: "FORBIDDEN",
+            message: "SUBCRIPTION_REQUIRED",
+          });
+        }
+      } catch (e) {
+        if (e instanceof TRPCError) {
+          throw e;
+        }
+
+        throw new TRPCError({
+          code: "INTERNAL_SERVER_ERROR",
+          message: "SUBCRIPTION_REQUIRED",
+        });
+      }
+
       const voice = await prisma.voice.findUnique({
         where: {
           id: input.voiceId,
@@ -180,6 +206,21 @@ export const generationsRouter = createTRPCRouter({
           message: "Failed to save generation",
         });
       }
+
+      polar.events
+        .ingest({
+          events: [
+            {
+              name: "tts_generation",
+              externalCustomerId: ctx.orgId,
+              metadata: {
+                characters: input.text.length,
+              },
+              timestamp: new Date(),
+            },
+          ],
+        })
+        .catch(() => {});
 
       return { id: generationId };
     }),

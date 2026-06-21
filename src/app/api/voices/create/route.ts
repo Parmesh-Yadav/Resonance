@@ -1,7 +1,7 @@
 import { auth } from "@clerk/nextjs/server";
 import { parseBuffer } from "music-metadata";
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
-import { file, z } from "zod";
+import { z } from "zod";
+import { polar } from "@/lib/polar";
 import { prisma } from "@/lib/db";
 import { uploadAudio } from "@/lib/r2";
 import { VOICE_CATEGORIES } from "@/features/voices/data/voice-categories";
@@ -21,6 +21,31 @@ export async function POST(req: Request) {
   const { userId, orgId } = await auth();
   if (!userId || !orgId) {
     return new Response("Unauthorized", { status: 401 });
+  }
+
+  try {
+    const customerState = await polar.customers.getStateExternal({
+      externalId: orgId,
+    });
+
+    const hasActiveSubscription =
+      (customerState.activeSubscriptions ?? []).length > 0;
+
+    if (!hasActiveSubscription) {
+      return Response.json(
+        {
+          error: "SUBCRIPTION_REQUIRED",
+        },
+        { status: 403 },
+      );
+    }
+  } catch {
+    return Response.json(
+      {
+        error: "SUBCRIPTION_REQUIRED",
+      },
+      { status: 403 },
+    );
   }
 
   const url = new URL(req.url);
@@ -153,6 +178,19 @@ export async function POST(req: Request) {
       { status: 500 },
     );
   }
+
+  polar.events
+    .ingest({
+      events: [
+        {
+          name: "voice_creation",
+          externalCustomerId: orgId,
+          metadata: {},
+          timestamp: new Date(),
+        },
+      ],
+    })
+    .catch(() => {});
 
   return Response.json(
     {
